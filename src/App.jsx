@@ -87,33 +87,46 @@ class ErrorBoundary extends React.Component {
 const MOCK_DB = { users: [], classes: [], quizzes: [], results: [] };
 
 // --- FIREBASE INITIALIZATION & CONFIGURATION ---
-// Inisialisasi variabel global untuk meniru import dari file terpisah
+// Variabel global untuk menampung instance Firebase
 let app = null;
 let auth = null;
 let db = null;
-let initialAuthToken = null;
 let isOffline = false;
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
+// 1. Konfigurasi Firebase (Sesuai permintaan Anda)
+// PENTING: Ganti "PLACEHOLDER" dengan konfigurasi asli Anda dari Firebase Console
+const firebaseConfig = typeof __firebase_config !== 'undefined'
+    ? JSON.parse(__firebase_config)
+    : {
+        apiKey: "PLACEHOLDER", 
+        authDomain: "PLACEHOLDER",
+        projectId: "PLACEHOLDER",
+        storageBucket: "PLACEHOLDER",
+        messagingSenderId: "PLACEHOLDER",
+        appId: "PLACEHOLDER"
+    };
+
+// 2. Inisialisasi Aplikasi
+// Kita bungkus dalam try-catch dan cek placeholder untuk menentukan mode offline
 try {
-  if (typeof __firebase_config !== 'undefined' && __firebase_config) {
-    const firebaseConfig = JSON.parse(__firebase_config);
+  // Jika config masih placeholder, kita anggap offline/demo mode agar app tidak crash saat init
+  if (firebaseConfig.apiKey === "PLACEHOLDER") {
+    console.warn("Firebase Config belum diisi. Menggunakan mode Offline/Demo.");
+    isOffline = true;
+  } else {
     app = initializeApp(firebaseConfig);
     auth = getAuth(app);
     db = getFirestore(app);
-    
-    // Set initialAuthToken jika tersedia di environment
-    if (typeof __initial_auth_token !== 'undefined') {
-      initialAuthToken = __initial_auth_token;
-    }
-  } else {
-    isOffline = true;
-    console.warn("Firebase config is missing. Running in offline/demo mode.");
   }
 } catch (e) {
+  console.error("Gagal menginisialisasi Firebase:", e);
   isOffline = true;
-  console.error("Error initializing Firebase:", e);
 }
+
+// 3. Export konstanta lain (disesuaikan agar bisa diakses di dalam file ini)
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
 
 // --- UTILS ---
 const generateRoomCode = () => {
@@ -166,7 +179,7 @@ const ConfirmationModal = ({ title, message, onConfirm, onCancel, type = 'warnin
 
 // --- COMPONENT: MODAL ---
 const Modal = ({ title, children, onClose, icon: Icon, color = "blue" }) => (
-    <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300">
+    <div className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300">
         <div className="bg-white rounded-[24px] md:rounded-[36px] w-full max-w-5xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-in slide-in-from-bottom-8 fade-in duration-500 border border-white/40">
           <div className={`p-6 md:p-8 bg-gradient-to-r from-${color}-600 to-${color}-800 text-white flex justify-between items-center shadow-lg shrink-0 relative overflow-hidden`}>
               <div className="absolute top-0 right-0 p-8 opacity-10 transform translate-x-10 -translate-y-10 rotate-12"><Icon size={140}/></div>
@@ -259,13 +272,14 @@ function EduQuestApp() {
     const splashTimer = setTimeout(() => setShowSplash(false), 2500);
 
     const initAuth = async () => {
-      // Logic from user request: handle initialAuthToken or anonymous sign in
+      // Jika mode offline terdeteksi saat init di luar, kita stop
       if (isOffline || !auth) { 
         setLoading(false); 
         return; 
       }
       
       try {
+        // Logika sesuai permintaan Anda: Cek initialAuthToken atau Anonymous
         if (initialAuthToken) {
           await signInWithCustomToken(auth, initialAuthToken);
         } else {
