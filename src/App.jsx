@@ -86,23 +86,34 @@ class ErrorBoundary extends React.Component {
 // --- DATABASE SIMULATION (MOCK DB) ---
 const MOCK_DB = { users: [], classes: [], quizzes: [], results: [] };
 
-// --- FIREBASE INIT ---
+// --- FIREBASE INITIALIZATION & CONFIGURATION ---
+// Inisialisasi variabel global untuk meniru import dari file terpisah
 let app = null;
 let auth = null;
 let db = null;
+let initialAuthToken = null;
 let isOffline = false;
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
 try {
   if (typeof __firebase_config !== 'undefined' && __firebase_config) {
-    try {
-        const firebaseConfig = JSON.parse(__firebase_config);
-        app = initializeApp(firebaseConfig);
-        auth = getAuth(app);
-        db = getFirestore(app);
-    } catch (inner) { isOffline = true; }
-  } else { isOffline = true; }
-} catch (e) { isOffline = true; }
+    const firebaseConfig = JSON.parse(__firebase_config);
+    app = initializeApp(firebaseConfig);
+    auth = getAuth(app);
+    db = getFirestore(app);
+    
+    // Set initialAuthToken jika tersedia di environment
+    if (typeof __initial_auth_token !== 'undefined') {
+      initialAuthToken = __initial_auth_token;
+    }
+  } else {
+    isOffline = true;
+    console.warn("Firebase config is missing. Running in offline/demo mode.");
+  }
+} catch (e) {
+  isOffline = true;
+  console.error("Error initializing Firebase:", e);
+}
 
 // --- UTILS ---
 const generateRoomCode = () => {
@@ -129,9 +140,14 @@ const sortClassesByName = (classes) => {
     });
 };
 
+const validateClassroom = (classroom) => {
+    const regex = /^([1-9]|1[0-2])[a-zA-Z]$/;
+    return regex.test(classroom);
+};
+
 // --- COMPONENT: CONFIRMATION MODAL ---
 const ConfirmationModal = ({ title, message, onConfirm, onCancel, type = 'warning' }) => (
-    <div className="fixed inset-0 z-[150] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-300">
+    <div className="fixed inset-0 z-[150] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-300">
         <div className="bg-white rounded-3xl p-8 w-[90%] max-w-sm shadow-2xl scale-100 animate-in zoom-in-95 duration-300">
             <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-6 mx-auto ${type === 'danger' ? 'bg-red-50 text-red-500' : 'bg-amber-50 text-amber-500'}`}>
                 {type === 'danger' ? <Trash2 size={28} /> : <AlertTriangle size={28} />}
@@ -150,7 +166,7 @@ const ConfirmationModal = ({ title, message, onConfirm, onCancel, type = 'warnin
 
 // --- COMPONENT: MODAL ---
 const Modal = ({ title, children, onClose, icon: Icon, color = "blue" }) => (
-    <div className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300">
+    <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300">
         <div className="bg-white rounded-[24px] md:rounded-[36px] w-full max-w-5xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-in slide-in-from-bottom-8 fade-in duration-500 border border-white/40">
           <div className={`p-6 md:p-8 bg-gradient-to-r from-${color}-600 to-${color}-800 text-white flex justify-between items-center shadow-lg shrink-0 relative overflow-hidden`}>
               <div className="absolute top-0 right-0 p-8 opacity-10 transform translate-x-10 -translate-y-10 rotate-12"><Icon size={140}/></div>
@@ -235,27 +251,56 @@ function EduQuestApp() {
 
   // --- INITIALIZATION ---
   useEffect(() => {
+    // Add custom styles
     const styleTag = document.createElement('style');
     styleTag.textContent = styles;
     document.head.appendChild(styleTag);
 
     const splashTimer = setTimeout(() => setShowSplash(false), 2500);
+
     const initAuth = async () => {
-      if (isOffline || !auth) { setLoading(false); return; }
+      // Logic from user request: handle initialAuthToken or anonymous sign in
+      if (isOffline || !auth) { 
+        setLoading(false); 
+        return; 
+      }
+      
       try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await signInWithCustomToken(auth, __initial_auth_token);
-        else await signInAnonymously(auth);
-      } catch (err) { isOffline = true; setLoading(false); }
+        if (initialAuthToken) {
+          await signInWithCustomToken(auth, initialAuthToken);
+        } else {
+          await signInAnonymously(auth);
+        }
+      } catch (err) { 
+        console.error("Auth Error:", err);
+        // Fallback to offline/demo if auth fails
+        isOffline = true;
+        setLoading(false);
+      }
     };
+    
     initAuth();
+
     let unsubscribe = () => {};
     if (!isOffline && auth) {
         unsubscribe = onAuthStateChanged(auth, (u) => {
           setUser(u);
-          setLoading(false); 
+          // Check for existing session on load (user requested this logic)
+          if (u) {
+            checkRememberMe(); 
+          } else {
+            setLoading(false);
+          }
         });
-    } else setLoading(false);
-    return () => { clearTimeout(splashTimer); unsubscribe(); document.head.removeChild(styleTag); };
+    } else {
+        setLoading(false);
+    }
+
+    return () => { 
+        clearTimeout(splashTimer); 
+        unsubscribe(); 
+        if(document.head.contains(styleTag)) document.head.removeChild(styleTag); 
+    };
   }, []);
 
   // --- DATA SYNC ---
@@ -354,7 +399,7 @@ function EduQuestApp() {
             alarmRef.current.currentTime = 0;
         }
     };
-  }, [view, quizFinished]); // Re-run effect only when view or quiz status changes
+  }, [view, quizFinished]); 
 
 
   // --- ACTIONS ---
@@ -366,6 +411,27 @@ function EduQuestApp() {
     textarea.select();
     try { document.execCommand('copy'); setCopiedId(id); setTimeout(() => setCopiedId(null), 2000); } catch (err) {}
     document.body.removeChild(textarea);
+  };
+
+  const checkRememberMe = async () => {
+    // Only verify existing ID, don't auto-set user unless found
+    if (isOffline) { setLoading(false); return; }
+    
+    let savedUserId = null;
+    try { savedUserId = localStorage.getItem('eduquest_uid'); } catch(e) {}
+
+    if (savedUserId && db) {
+      try {
+        const docSnap = await getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'users'), where('__name__', '==', savedUserId)));
+        if (!docSnap.empty) {
+            // Auto login found user
+            const userData = { id: docSnap.docs[0].id, ...docSnap.docs[0].data() };
+            setAppUser(userData);
+            setView(userData.role === 'teacher' ? 'teacher-dash' : 'student-dash');
+        }
+      } catch (e) {}
+    }
+    setLoading(false);
   };
 
   const handleAuthNavigation = (mode, role) => {
@@ -567,8 +633,6 @@ function EduQuestApp() {
     const currentQData = activeQuiz.questions[currentQuestionIdx];
     
     // NEW: Use custom points or default to equal distribution
-    // If user has set specific points, use it. Otherwise use 0 for now as fallback, logic below handles it better.
-    // Actually, user wants custom points.
     const questionPoints = parseInt(currentQData.points) || 0;
     
     if (selectedAnswer === currentQData.answer) newScore += questionPoints;
@@ -579,7 +643,6 @@ function EduQuestApp() {
         setSelectedAnswer(null); 
     } else {
       setQuizFinished(true);
-      // Recalculate full score just in case to be safe on finish
       const finalScore = Math.min(100, Math.round(newScore + ((!forceFinish && selectedAnswer === currentQData.answer) ? questionPoints : 0)));
       
       const resultData = { quizId: activeQuiz.id, quizCode: activeQuiz.code, quizTitle: activeQuiz.title, studentId: appUser.id, studentName: appUser.name, studentClass: quizClassSelection || 'Umum', score: finalScore, isPublished: false, timestamp: isOffline ? { seconds: Date.now()/1000 } : serverTimestamp(), teacherId: activeQuiz.teacherId };
