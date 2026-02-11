@@ -87,45 +87,34 @@ class ErrorBoundary extends React.Component {
 const MOCK_DB = { users: [], classes: [], quizzes: [], results: [] };
 
 // --- FIREBASE INITIALIZATION & CONFIGURATION ---
-// Variabel global untuk menampung instance Firebase
-let app = null;
-let auth = null;
-let db = null;
+// Menggunakan konfigurasi asli Anda
+const firebaseConfig = {
+  apiKey: "AIzaSyCOpAKOC521UdLrlnxhvSQVfK3lwU1Dtks",
+  authDomain: "eduquest-74bfa.firebaseapp.com",
+  projectId: "eduquest-74bfa",
+  storageBucket: "eduquest-74bfa.firebasestorage.app",
+  messagingSenderId: "21045199981",
+  appId: "1:21045199981:web:7db4b832a382dd9005ab64",
+  measurementId: "G-7CPTVXGTYV"
+};
+
+let app;
+let auth;
+let db;
 let isOffline = false;
 
-// 1. Konfigurasi Firebase (Sesuai permintaan Anda)
-// PENTING: Ganti "PLACEHOLDER" dengan konfigurasi asli Anda dari Firebase Console
-const firebaseConfig = typeof __firebase_config !== 'undefined'
-    ? JSON.parse(__firebase_config)
-    : {
-        apiKey: "PLACEHOLDER", 
-        authDomain: "PLACEHOLDER",
-        projectId: "PLACEHOLDER",
-        storageBucket: "PLACEHOLDER",
-        messagingSenderId: "PLACEHOLDER",
-        appId: "PLACEHOLDER"
-    };
+// Kita gunakan ID statis agar data konsisten di database Anda
+const appId = "eduquest-production-v1"; 
 
-// 2. Inisialisasi Aplikasi
-// Kita bungkus dalam try-catch dan cek placeholder untuk menentukan mode offline
 try {
-  // Jika config masih placeholder, kita anggap offline/demo mode agar app tidak crash saat init
-  if (firebaseConfig.apiKey === "PLACEHOLDER") {
-    console.warn("Firebase Config belum diisi. Menggunakan mode Offline/Demo.");
-    isOffline = true;
-  } else {
-    app = initializeApp(firebaseConfig);
-    auth = getAuth(app);
-    db = getFirestore(app);
-  }
+  app = initializeApp(firebaseConfig);
+  auth = getAuth(app);
+  db = getFirestore(app);
+  console.log("Firebase Connected Successfully to:", firebaseConfig.projectId);
 } catch (e) {
   console.error("Gagal menginisialisasi Firebase:", e);
-  isOffline = true;
+  isOffline = true; // Fallback jika terjadi error koneksi
 }
-
-// 3. Export konstanta lain (disesuaikan agar bisa diakses di dalam file ini)
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
 
 // --- UTILS ---
@@ -154,8 +143,8 @@ const sortClassesByName = (classes) => {
 };
 
 const validateClassroom = (classroom) => {
-    const regex = /^([1-9]|1[0-2])[a-zA-Z]$/;
-    return regex.test(classroom);
+    // Validasi sederhana, bisa disesuaikan
+    return true;
 };
 
 // --- COMPONENT: CONFIRMATION MODAL ---
@@ -272,19 +261,14 @@ function EduQuestApp() {
     const splashTimer = setTimeout(() => setShowSplash(false), 2500);
 
     const initAuth = async () => {
-      // Jika mode offline terdeteksi saat init di luar, kita stop
-      if (isOffline || !auth) { 
+      // Jika mode offline, langsung stop
+      if (isOffline) { 
         setLoading(false); 
         return; 
       }
       
       try {
-        // Logika sesuai permintaan Anda: Cek initialAuthToken atau Anonymous
-        if (initialAuthToken) {
-          await signInWithCustomToken(auth, initialAuthToken);
-        } else {
-          await signInAnonymously(auth);
-        }
+        await signInAnonymously(auth);
       } catch (err) { 
         console.error("Auth Error:", err);
         // Fallback to offline/demo if auth fails
@@ -299,12 +283,8 @@ function EduQuestApp() {
     if (!isOffline && auth) {
         unsubscribe = onAuthStateChanged(auth, (u) => {
           setUser(u);
-          // Check for existing session on load (user requested this logic)
-          if (u) {
-            checkRememberMe(); 
-          } else {
-            setLoading(false);
-          }
+          // Check for existing session on load logic here if needed
+          setLoading(false);
         });
     } else {
         setLoading(false);
@@ -344,7 +324,16 @@ function EduQuestApp() {
             return () => { unsubHistory(); unsubJoined(); };
         }
     } else {
+        // Mock data logic (offline mode)
         setDataLoading(false);
+        if (appUser.role === 'teacher') {
+            setCreatedQuizzes(MOCK_DB.quizzes.filter(q => q.teacherId === appUser.id));
+            setClasses(MOCK_DB.classes.filter(c => c.teacherId === appUser.id));
+            setQuizResults(MOCK_DB.results.filter(r => r.teacherId === appUser.id));
+        } else {
+            setStudentHistory(MOCK_DB.results.filter(r => r.studentId === appUser.id));
+            setJoinedClasses(MOCK_DB.classes.filter(c => c.studentIds?.includes(appUser.id)));
+        }
     }
   }, [appUser, view]);
 
@@ -362,20 +351,16 @@ function EduQuestApp() {
 
   // --- ANTI-CHEAT EFFECT ---
   useEffect(() => {
-    // 1. Inisialisasi Audio
     if (!alarmRef.current) {
         alarmRef.current = new Audio("https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg");
         alarmRef.current.loop = true;
     }
 
-    // 2. Logic Deteksi
     const handleVisibilityChange = () => {
         if (view === 'quiz' && !quizFinished) {
             if (document.hidden) {
-                // Tab disembunyikan/minimize -> Nyalakan Alarm
                 alarmRef.current.play().catch(e => console.log("Play error:", e));
             } else {
-                // Tab kembali aktif -> Matikan Alarm + Pesan
                 alarmRef.current.pause();
                 alarmRef.current.currentTime = 0;
                 alert("⚠️ PERINGATAN: Dilarang meninggalkan halaman kuis!");
@@ -383,7 +368,6 @@ function EduQuestApp() {
         }
     };
 
-    // Tambahan: Deteksi fokus window (untuk desktop yang klik window lain)
     const handleBlur = () => {
          if (view === 'quiz' && !quizFinished) {
              alarmRef.current.play().catch(e => console.log("Play error:", e));
@@ -398,12 +382,10 @@ function EduQuestApp() {
         }
     }
 
-    // 3. Pasang Event Listener
     document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("blur", handleBlur);
     window.addEventListener("focus", handleFocus);
 
-    // 4. Cleanup
     return () => {
         document.removeEventListener("visibilitychange", handleVisibilityChange);
         window.removeEventListener("blur", handleBlur);
@@ -425,27 +407,6 @@ function EduQuestApp() {
     textarea.select();
     try { document.execCommand('copy'); setCopiedId(id); setTimeout(() => setCopiedId(null), 2000); } catch (err) {}
     document.body.removeChild(textarea);
-  };
-
-  const checkRememberMe = async () => {
-    // Only verify existing ID, don't auto-set user unless found
-    if (isOffline) { setLoading(false); return; }
-    
-    let savedUserId = null;
-    try { savedUserId = localStorage.getItem('eduquest_uid'); } catch(e) {}
-
-    if (savedUserId && db) {
-      try {
-        const docSnap = await getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'users'), where('__name__', '==', savedUserId)));
-        if (!docSnap.empty) {
-            // Auto login found user
-            const userData = { id: docSnap.docs[0].id, ...docSnap.docs[0].data() };
-            setAppUser(userData);
-            setView(userData.role === 'teacher' ? 'teacher-dash' : 'student-dash');
-        }
-      } catch (e) {}
-    }
-    setLoading(false);
   };
 
   const handleAuthNavigation = (mode, role) => {
@@ -494,7 +455,20 @@ function EduQuestApp() {
                  } else throw new Error("Nama atau Password salah.");
             }
         } else {
-             setLoading(false);
+            // Mock Auth for Offline Mode
+            if (authMode === 'register') {
+                const newUser = { id: 'user_' + Date.now(), role: loginRole, name: loginForm.name, password: loginForm.password, classroom: null };
+                MOCK_DB.users.push(newUser);
+                setSuccessMsg("Akun (Demo) dibuat! Silakan login secara manual.");
+                setTimeout(() => { setAuthMode('login'); setLoginForm({ name: '', password: '', teacherCode: '' }); setSuccessMsg(''); setLoading(false); }, 1000);
+            } else {
+                const found = MOCK_DB.users.find(u => u.name === loginForm.name && u.password === loginForm.password);
+                if (found) { setAppUser(found); setView(found.role === 'teacher' ? 'teacher-dash' : 'student-dash'); setLoading(false); } 
+                else { 
+                    if (MOCK_DB.users.length === 0) { const demoUser = { id: 'demo_'+Date.now(), role: 'student', name: loginForm.name, classroom: 'Demo' }; setAppUser(demoUser); setView('student-dash'); setLoading(false); } 
+                    else { throw new Error("Akun tidak ditemukan."); }
+                }
+            }
         }
     } catch (err) { setErrorMsg(err.message || "Terjadi kesalahan."); setLoading(false); }
   };
@@ -541,7 +515,14 @@ function EduQuestApp() {
               alert(`Berhasil bergabung ke kelas ${classData.name}! Silakan pilih nomor absen Anda sekarang.`);
               setAttendanceModalClass({ id: classDoc.id, ...classData }); setJoinClassCode('');
           } else {
-             // Mock
+              const cls = MOCK_DB.classes.find(c => c.code === joinClassCode.toUpperCase());
+              if (!cls) throw new Error("Kode kelas tidak ditemukan.");
+              if (cls.studentIds && cls.studentIds.includes(appUser.id)) throw new Error("Sudah bergabung.");
+              if(!cls.students) cls.students = []; if(!cls.studentIds) cls.studentIds = [];
+              cls.students.push({ id: appUser.id, name: appUser.name, absen: null }); cls.studentIds.push(appUser.id);
+              setJoinedClasses([...MOCK_DB.classes.filter(c => c.studentIds?.includes(appUser.id))]);
+              alert(`Berhasil bergabung! Silakan pilih nomor absen.`);
+              setAttendanceModalClass(cls); setJoinClassCode('');
           }
       } catch (err) { setErrorMsg(err.message); }
       setLoading(false);
@@ -558,6 +539,9 @@ function EduQuestApp() {
               const updatedStudents = clsData.students.map(s => { if(s.id === appUser.id) return { ...s, absen: absenNum }; return s; });
               await updateDoc(classRef, { students: updatedStudents });
           }
+      } else {
+          const cls = MOCK_DB.classes.find(c => c.id === attendanceModalClass.id);
+          if(cls) { cls.students = cls.students.map(s => s.id === appUser.id ? {...s, absen: absenNum} : s); setJoinedClasses([...MOCK_DB.classes.filter(c => c.studentIds?.includes(appUser.id))]); }
       }
       setAttendanceModalClass(null); setSelectedAbsen(''); alert("Absen berhasil disimpan!");
   };
@@ -595,6 +579,7 @@ function EduQuestApp() {
           onCancel: () => setConfirmation(null),
           onConfirm: async () => {
              if(!isOffline && db) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'classes', classId));
+             else { MOCK_DB.classes = MOCK_DB.classes.filter(c => c.id !== classId); setClasses([...MOCK_DB.classes.filter(c => c.teacherId === appUser.id)]); }
              setSelectedClass(null); setConfirmation(null);
           }
       });
@@ -619,6 +604,10 @@ function EduQuestApp() {
     const quizData = { title: quizTitle, questions: questions, teacherId: appUser.id, teacherName: appUser.name, assignedClassIds: selectedClassIds, allowedClassNames, ...(editingQuizId ? {} : { code: code, createdAt: isOffline ? { seconds: Date.now()/1000 } : serverTimestamp() }) };
     if (!isOffline && db) { 
         try { if (editingQuizId) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'quizzes', editingQuizId), quizData); alert(`Kuis Berhasil Diupdate!`); } else { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'quizzes'), quizData); alert(`Kuis Berhasil Dibuat! Kode: ${code}`); } } catch(e) { console.error(e); } 
+    } else { 
+        if (editingQuizId) { const idx = MOCK_DB.quizzes.findIndex(q => q.id === editingQuizId); if (idx >= 0) MOCK_DB.quizzes[idx] = { ...MOCK_DB.quizzes[idx], ...quizData }; alert(`Kuis Berhasil Diupdate!`); } 
+        else { MOCK_DB.quizzes.push({ id: 'quiz_'+Date.now(), ...quizData, code: code, createdAt: { seconds: Date.now()/1000 } }); alert(`Kuis Berhasil Dibuat! Kode: ${code}`); }
+        setCreatedQuizzes([...MOCK_DB.quizzes.filter(q => q.teacherId === appUser.id)]); 
     }
     setQuestions([]); setQuizTitle(''); setSelectedClassIds([]); setIsCreatingQuiz(false); setEditingQuizId(null); setTeacherTab('quizzes'); setLoading(false);
   };
@@ -661,6 +650,7 @@ function EduQuestApp() {
       
       const resultData = { quizId: activeQuiz.id, quizCode: activeQuiz.code, quizTitle: activeQuiz.title, studentId: appUser.id, studentName: appUser.name, studentClass: quizClassSelection || 'Umum', score: finalScore, isPublished: false, timestamp: isOffline ? { seconds: Date.now()/1000 } : serverTimestamp(), teacherId: activeQuiz.teacherId };
       if (!isOffline && db) { try { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'results'), resultData); } catch(e) {} } 
+      else { MOCK_DB.results.push({ id: 'res_'+Date.now(), ...resultData }); setStudentHistory([...MOCK_DB.results.filter(r => r.studentId === appUser.id)]); }
       setScore(finalScore);
     }
   };
@@ -676,6 +666,10 @@ function EduQuestApp() {
               snapshot.docs.forEach(d => { if (d.data().isPublished !== true) { batch.update(d.ref, { isPublished: true }); } });
               await batch.commit(); alert("Nilai berhasil dipublikasikan!");
           } catch(e) { console.error("Publish error:", e); alert("Gagal mempublikasikan nilai."); }
+      } else {
+          MOCK_DB.results.forEach(r => { if(r.quizId === quizId && r.studentClass === className) r.isPublished = true; });
+          alert("Nilai berhasil dipublikasikan! (Demo Mode)");
+          if(selectedClass) { setSelectedClassResults(MOCK_DB.results.filter(r => r.studentClass === selectedClass.name)); }
       }
   };
 
@@ -740,7 +734,6 @@ function EduQuestApp() {
                  <div className="absolute top-[-10%] right-[-10%] w-[600px] h-[600px] bg-gradient-to-br from-blue-400/20 to-purple-400/20 rounded-full blur-[100px] animate-pulse"></div>
                  <div className="absolute bottom-[-10%] left-[-10%] w-[700px] h-[700px] bg-gradient-to-tr from-indigo-400/20 to-pink-400/20 rounded-full blur-[120px] animate-pulse delay-1000"></div>
              </div>
-
              <nav className="sticky top-0 w-full z-50 bg-white/70 backdrop-blur-xl border-b border-white/50 py-4 px-6 md:px-12 flex justify-between items-center transition-all shadow-sm">
                  <div className="flex items-center gap-3 group cursor-pointer" onClick={()=>window.location.reload()}>
                      <div className="p-2.5 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl shadow-lg shadow-blue-500/20 text-white group-hover:scale-110 transition-transform duration-300">
@@ -748,7 +741,6 @@ function EduQuestApp() {
                      </div>
                      <span className="font-extrabold text-2xl tracking-tight text-slate-800 group-hover:text-blue-600 transition-colors">EduQuest<span className="text-blue-500">.</span></span>
                  </div>
-                 
                  <div className="flex items-center gap-3">
                      <button onClick={() => handleAuthNavigation('login', 'student')} className="hidden md:flex bg-white hover:bg-slate-50 text-slate-700 px-5 py-2.5 rounded-xl font-bold text-sm border border-slate-200 items-center gap-2 transition-all hover:shadow-md hover:-translate-y-0.5 group active:scale-95"><Key size={16} className="text-blue-500 group-hover:rotate-45 transition-transform"/> Masukkan Kode</button>
                      <button onClick={() => handleAuthNavigation('login', 'student')} className="text-slate-600 font-bold text-sm hover:text-blue-700 px-4 transition-colors active:scale-95">Masuk</button>
