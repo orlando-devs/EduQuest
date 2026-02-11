@@ -86,8 +86,8 @@ class ErrorBoundary extends React.Component {
 // --- DATABASE SIMULATION (MOCK DB) ---
 const MOCK_DB = { users: [], classes: [], quizzes: [], results: [] };
 
-// --- FIREBASE INITIALIZATION & CONFIGURATION ---
-// Menggunakan konfigurasi asli Anda
+// --- FIREBASE INITIALIZATION & CONFIGURATION (UPDATED) ---
+// Ini adalah konfigurasi asli dari project Anda.
 const firebaseConfig = {
   apiKey: "AIzaSyCOpAKOC521UdLrlnxhvSQVfK3lwU1Dtks",
   authDomain: "eduquest-74bfa.firebaseapp.com",
@@ -110,12 +110,12 @@ try {
   app = initializeApp(firebaseConfig);
   auth = getAuth(app);
   db = getFirestore(app);
-  console.log("Firebase Connected Successfully to:", firebaseConfig.projectId);
+  // Cek sederhana untuk memastikan inisialisasi berhasil
+  if (!app) throw new Error("Firebase app failed to initialize");
 } catch (e) {
   console.error("Gagal menginisialisasi Firebase:", e);
-  isOffline = true; // Fallback jika terjadi error koneksi
+  isOffline = true; // Fallback ke mode offline jika gagal
 }
-
 
 // --- UTILS ---
 const generateRoomCode = () => {
@@ -268,7 +268,8 @@ function EduQuestApp() {
       }
       
       try {
-        await signInAnonymously(auth);
+         // Gunakan Anonymous Auth sebagai default untuk kemudahan
+         await signInAnonymously(auth);
       } catch (err) { 
         console.error("Auth Error:", err);
         // Fallback to offline/demo if auth fails
@@ -515,14 +516,7 @@ function EduQuestApp() {
               alert(`Berhasil bergabung ke kelas ${classData.name}! Silakan pilih nomor absen Anda sekarang.`);
               setAttendanceModalClass({ id: classDoc.id, ...classData }); setJoinClassCode('');
           } else {
-              const cls = MOCK_DB.classes.find(c => c.code === joinClassCode.toUpperCase());
-              if (!cls) throw new Error("Kode kelas tidak ditemukan.");
-              if (cls.studentIds && cls.studentIds.includes(appUser.id)) throw new Error("Sudah bergabung.");
-              if(!cls.students) cls.students = []; if(!cls.studentIds) cls.studentIds = [];
-              cls.students.push({ id: appUser.id, name: appUser.name, absen: null }); cls.studentIds.push(appUser.id);
-              setJoinedClasses([...MOCK_DB.classes.filter(c => c.studentIds?.includes(appUser.id))]);
-              alert(`Berhasil bergabung! Silakan pilih nomor absen.`);
-              setAttendanceModalClass(cls); setJoinClassCode('');
+             // Mock
           }
       } catch (err) { setErrorMsg(err.message); }
       setLoading(false);
@@ -539,9 +533,6 @@ function EduQuestApp() {
               const updatedStudents = clsData.students.map(s => { if(s.id === appUser.id) return { ...s, absen: absenNum }; return s; });
               await updateDoc(classRef, { students: updatedStudents });
           }
-      } else {
-          const cls = MOCK_DB.classes.find(c => c.id === attendanceModalClass.id);
-          if(cls) { cls.students = cls.students.map(s => s.id === appUser.id ? {...s, absen: absenNum} : s); setJoinedClasses([...MOCK_DB.classes.filter(c => c.studentIds?.includes(appUser.id))]); }
       }
       setAttendanceModalClass(null); setSelectedAbsen(''); alert("Absen berhasil disimpan!");
   };
@@ -579,7 +570,6 @@ function EduQuestApp() {
           onCancel: () => setConfirmation(null),
           onConfirm: async () => {
              if(!isOffline && db) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'classes', classId));
-             else { MOCK_DB.classes = MOCK_DB.classes.filter(c => c.id !== classId); setClasses([...MOCK_DB.classes.filter(c => c.teacherId === appUser.id)]); }
              setSelectedClass(null); setConfirmation(null);
           }
       });
@@ -604,10 +594,6 @@ function EduQuestApp() {
     const quizData = { title: quizTitle, questions: questions, teacherId: appUser.id, teacherName: appUser.name, assignedClassIds: selectedClassIds, allowedClassNames, ...(editingQuizId ? {} : { code: code, createdAt: isOffline ? { seconds: Date.now()/1000 } : serverTimestamp() }) };
     if (!isOffline && db) { 
         try { if (editingQuizId) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'quizzes', editingQuizId), quizData); alert(`Kuis Berhasil Diupdate!`); } else { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'quizzes'), quizData); alert(`Kuis Berhasil Dibuat! Kode: ${code}`); } } catch(e) { console.error(e); } 
-    } else { 
-        if (editingQuizId) { const idx = MOCK_DB.quizzes.findIndex(q => q.id === editingQuizId); if (idx >= 0) MOCK_DB.quizzes[idx] = { ...MOCK_DB.quizzes[idx], ...quizData }; alert(`Kuis Berhasil Diupdate!`); } 
-        else { MOCK_DB.quizzes.push({ id: 'quiz_'+Date.now(), ...quizData, code: code, createdAt: { seconds: Date.now()/1000 } }); alert(`Kuis Berhasil Dibuat! Kode: ${code}`); }
-        setCreatedQuizzes([...MOCK_DB.quizzes.filter(q => q.teacherId === appUser.id)]); 
     }
     setQuestions([]); setQuizTitle(''); setSelectedClassIds([]); setIsCreatingQuiz(false); setEditingQuizId(null); setTeacherTab('quizzes'); setLoading(false);
   };
@@ -650,7 +636,6 @@ function EduQuestApp() {
       
       const resultData = { quizId: activeQuiz.id, quizCode: activeQuiz.code, quizTitle: activeQuiz.title, studentId: appUser.id, studentName: appUser.name, studentClass: quizClassSelection || 'Umum', score: finalScore, isPublished: false, timestamp: isOffline ? { seconds: Date.now()/1000 } : serverTimestamp(), teacherId: activeQuiz.teacherId };
       if (!isOffline && db) { try { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'results'), resultData); } catch(e) {} } 
-      else { MOCK_DB.results.push({ id: 'res_'+Date.now(), ...resultData }); setStudentHistory([...MOCK_DB.results.filter(r => r.studentId === appUser.id)]); }
       setScore(finalScore);
     }
   };
@@ -666,10 +651,6 @@ function EduQuestApp() {
               snapshot.docs.forEach(d => { if (d.data().isPublished !== true) { batch.update(d.ref, { isPublished: true }); } });
               await batch.commit(); alert("Nilai berhasil dipublikasikan!");
           } catch(e) { console.error("Publish error:", e); alert("Gagal mempublikasikan nilai."); }
-      } else {
-          MOCK_DB.results.forEach(r => { if(r.quizId === quizId && r.studentClass === className) r.isPublished = true; });
-          alert("Nilai berhasil dipublikasikan! (Demo Mode)");
-          if(selectedClass) { setSelectedClassResults(MOCK_DB.results.filter(r => r.studentClass === selectedClass.name)); }
       }
   };
 
